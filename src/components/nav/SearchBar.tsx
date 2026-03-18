@@ -52,7 +52,7 @@ export function SearchBar() {
             setIsOpen(true);
           }}
           onFocus={() => query && setIsOpen(true)}
-          placeholder="Search tracks, artists..."
+          placeholder="Search artist or album..."
           className="w-full bg-bg-card border border-border rounded-full py-2 pl-9 pr-4 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-accent-spotify focus:ring-1 focus:ring-accent-spotify transition-colors"
         />
         {isSearching && (
