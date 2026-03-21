@@ -1,6 +1,6 @@
 'use client';
 
-import { AudioFeatures, ProductionCredit, Artist } from './types';
+import { AudioFeatures, ProductionCredit, Artist, LLMInsights } from './types';
 
 interface CacheEntry {
   data: unknown;
@@ -75,6 +75,14 @@ export const store = {
 
   setArtist(artistId: string, artist: Artist): void {
     this.setCache(`artist_${artistId}`, artist, 60 * 24 * 7); // 7 days
+  },
+
+  getLLMInsights(key: string): LLMInsights | null {
+    return this.getCache<LLMInsights>(`llm_${key}`);
+  },
+
+  setLLMInsights(key: string, data: LLMInsights): void {
+    this.setCache(`llm_${key}`, data, 60 * 24 * 7); // 7 days
   },
 
   getStorageStats(): { cacheEntries: number; estimatedKB: number } {

@@ -4,10 +4,12 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ProductionCredit } from '@/lib/types';
+import { ProductionCredit, LLMInsights } from '@/lib/types';
 import { AlbumInfo } from '@/lib/lastfm';
 import { ProductionPanel } from '@/components/track/ProductionPanel';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { LLMInsightsPanel } from '@/components/album/LLMInsightsPanel';
+import { store } from '@/lib/store';
 
 function formatDuration(seconds: string): string {
   const s = parseInt(seconds);
@@ -27,8 +29,10 @@ export default function AlbumPage() {
 
   const [albumInfo, setAlbumInfo] = useState<AlbumInfo | null>(null);
   const [credits, setCredits] = useState<ProductionCredit | null>(null);
+  const [llmInsights, setLlmInsights] = useState<LLMInsights | null>(null);
   const [loading, setLoading] = useState(true);
   const [creditsLoading, setCreditsLoading] = useState(true);
+  const [llmLoading, setLlmLoading] = useState(true);
 
   useEffect(() => {
     if (!artistName || !albumName) return;
@@ -69,8 +73,34 @@ export default function AlbumPage() {
       }
     }
 
+    async function loadLLMInsights() {
+      setLlmLoading(true);
+      const cacheKey = `album_${artistName}---${albumName}`;
+      const cached = store.getLLMInsights(cacheKey);
+      if (cached) {
+        setLlmInsights(cached);
+        setLlmLoading(false);
+        return;
+      }
+      try {
+        const res = await fetch(
+          `/api/enrichment/llm?artist=${encodeURIComponent(artistName)}&album=${encodeURIComponent(albumName)}&type=album`
+        );
+        if (res.ok) {
+          const data: LLMInsights = await res.json();
+          store.setLLMInsights(cacheKey, data);
+          setLlmInsights(data);
+        }
+      } catch (e) {
+        console.error('LLM insights fetch error', e);
+      } finally {
+        setLlmLoading(false);
+      }
+    }
+
     loadAlbum();
     loadCredits();
+    loadLLMInsights();
   }, [artistName, albumName]);
 
   const releaseYear = albumInfo?.releaseDate
@@ -173,7 +203,7 @@ export default function AlbumPage() {
           )}
         </div>
 
-        {/* Right: Credits + Wiki */}
+        {/* Right: Credits + Wiki + LLM Insights */}
         <div className="lg:col-span-2 space-y-6">
           {creditsLoading ? (
             <div className="bg-bg-card border border-border rounded-xl p-5 flex items-center gap-3">
@@ -188,6 +218,8 @@ export default function AlbumPage() {
               <p className="text-xs text-gray-500">No production data found for this album.</p>
             </div>
           )}
+
+          <LLMInsightsPanel insights={llmInsights} loading={llmLoading} />
 
           {albumInfo.wiki && (
             <div className="bg-bg-card border border-border rounded-xl p-5">
