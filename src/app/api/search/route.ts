@@ -30,6 +30,31 @@ export async function GET(request: NextRequest) {
 
   try {
     if (!type || type === 'artist') {
+      // Example response shape:
+      // {
+      //   results: {
+      //     artistmatches: {
+      //       artist: [
+      //         {
+      //           name: "Radiohead",
+      //           listeners: "4823910",
+      //           mbid: "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+      //           url: "https://www.last.fm/music/Radiohead",
+      //           image: [
+      //             { "#text": "https://lastfm.freetls.fastly.net/i/u/34s/...", "size": "small" },
+      //             { "#text": "https://lastfm.freetls.fastly.net/i/u/64s/...", "size": "medium" },
+      //             { "#text": "https://lastfm.freetls.fastly.net/i/u/174s/...", "size": "large" },
+      //             { "#text": "https://lastfm.freetls.fastly.net/i/u/300x300/...", "size": "extralarge" }
+      //           ]
+      //         },
+      //         ...
+      //       ]
+      //     },
+      //     "opensearch:totalResults": "150",
+      //     "opensearch:startIndex": "0",
+      //     "opensearch:itemsPerPage": "10"
+      //   }
+      // }
       const res = await lastfmSearch({
         method: 'artist.search',
         artist: q,

@@ -20,6 +20,8 @@ end tell
 
 export async function GET() {
   try {
+    // Example output: "Bohemian Rhapsody|||Queen|||A Night at the Opera"
+    // Or "stopped" if nothing is playing
     const output = execSync(`osascript -e '${APPLESCRIPT.replace(/'/g, "'\\''")}'`, {
       timeout: 5000,
       encoding: 'utf8',
