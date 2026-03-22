@@ -121,6 +121,20 @@ export interface ForceGraphData {
   links: ForceGraphLink[];
 }
 
+export interface LLMProducer {
+  name?: string;
+  role?: string;
+  bio?: string;
+  [key: string]: string | undefined;
+}
+
+export interface LLMInsights {
+  subject: string;
+  type: 'album' | 'artist';
+  productionProcess: Record<string, string> | string;
+  producers: (LLMProducer | string)[];
+}
+
 export type GenreFamily =
   | 'rock'
   | 'pop'
