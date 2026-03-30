@@ -14,7 +14,7 @@ Music Deep Dive is a Next.js 14 (App Router) web app for music discovery. It agg
 | Language | TypeScript 5 (strict mode) |
 | Styling | Tailwind CSS 3 (dark theme) |
 | Charts | Recharts (radar chart) |
-| Graph | react-force-graph-2d (force-directed) |
+| LLM | @anthropic-ai/sdk (Claude API) |
 | Caching | Browser localStorage (custom TTL store) |
 
 ---
@@ -34,19 +34,23 @@ src/
 │   ├── settings/page.tsx       # Cache stats + API credits
 │   └── api/
 │       ├── search/route.ts                    # Unified search endpoint
+│       ├── now-playing/route.ts               # Apple Music now-playing (macOS AppleScript)
 │       ├── enrichment/
 │       │   ├── lastfm/route.ts                # Last.fm enrichment
 │       │   ├── musicbrainz/route.ts           # MusicBrainz enrichment
-│       │   └── genius/route.ts                # Genius enrichment
+│       │   ├── genius/route.ts                # Genius enrichment
+│       │   └── llm/route.ts                   # LLM-generated production insights
 │       └── spotify/
 │           └── audio-features/route.ts        # Audio analysis
 ├── components/
 │   ├── nav/
 │   │   ├── TopNav.tsx              # Sticky header + breadcrumbs
-│   │   └── SearchBar.tsx           # Debounced search dropdown
+│   │   ├── SearchBar.tsx           # Debounced search dropdown
+│   │   └── NowPlayingBar.tsx       # Sticky footer showing current Apple Music track
 │   ├── artist/
 │   │   └── ArtistBio.tsx           # Artist card (bio, genres, stats)
 │   ├── album/
+│   │   └── LLMInsightsPanel.tsx    # AI-generated production narrative + producer bios
 │   ├── track/
 │   │   ├── ProductionPanel.tsx     # Producers, engineers, label
 │   │   └── TriviaSidebar.tsx       # Genius annotations + facts
@@ -55,7 +59,8 @@ src/
 │   └── ui/
 │       └── LoadingSpinner.tsx
 ├── hooks/
-│   └── useSearch.ts            # Debounced search state hook
+│   ├── useSearch.ts            # Debounced search state hook
+│   └── useNowPlaying.ts        # Polls /api/now-playing every 10s
 └── lib/
     ├── types.ts                # Shared TypeScript interfaces
     ├── store.ts                # Client-side localStorage cache
@@ -73,7 +78,7 @@ src/
 |---|---|---|
 | `/` | Home | `/api/search` (Last.fm) |
 | `/artist/[id]` | Artist | Last.fm bio + similar artists |
-| `/album/[id]` | Album | Last.fm album info + MusicBrainz credits |
+| `/album/[id]` | Album | Last.fm album info + MusicBrainz credits + LLM insights |
 | `/track/[id]` | Track | Last.fm tags, MusicBrainz credits, Genius trivia, Spotify audio features |
 | `/producer/[id]` | Producer | Static producer data |
 | `/settings` | Settings | localStorage cache stats |
@@ -130,6 +135,28 @@ Fetches annotations and facts for a track.
 | `title` | Track title |
 | `artist` | Artist name |
 
+### `GET /api/enrichment/llm`
+Returns AI-generated production insights for an album or artist.
+
+| Param | Description |
+|---|---|
+| `artist` | Artist name (required) |
+| `album` | Album title (required when `type=album`) |
+| `type` | `album` (default) \| `artist` |
+
+Uses `claude-sonnet-4-6` by default; set `LLM_PROVIDER=openai` to use GPT-4o instead. Responses are cached for 1h via `Cache-Control` headers. Returns `LLMInsights`:
+```ts
+{ subject: string, type: 'album' | 'artist', productionProcess: string, producers: ProducerInfo[] }
+```
+
+### `GET /api/now-playing`
+Returns the currently playing track from the macOS Apple Music app via AppleScript. macOS-only; always returns `Cache-Control: no-store`.
+
+Returns `NowPlayingTrack | null`:
+```ts
+{ track: string, artist: string, album: string, isPlaying: boolean }
+```
+
 ### `GET /api/spotify/audio-features`
 Returns `AudioFeatures` (BPM, key, energy, danceability, valence, etc.) for a track.
 
@@ -151,8 +178,10 @@ Browser
   ├─ Album page (parallel fetches)
   │     ├─→ GET /api/enrichment/lastfm?type=album
   │     │         └─→ Last.fm album.getinfo
-  │     └─→ GET /api/enrichment/musicbrainz?album=...&artist=...
-  │               └─→ MusicBrainz /release search + /release/{id}?inc=artist-rels
+  │     ├─→ GET /api/enrichment/musicbrainz?album=...&artist=...
+  │     │         └─→ MusicBrainz /release search + /release/{id}?inc=artist-rels
+  │     └─→ GET /api/enrichment/llm?type=album&artist=...&album=...
+  │               └─→ Claude (claude-sonnet-4-6) or OpenAI (gpt-4o)
   │
   └─ Track page (parallel fetches)
         ├─→ GET /api/enrichment/lastfm?type=tags
@@ -173,6 +202,7 @@ All enrichment data is cached in `localStorage` with TTL expiration to avoid red
   - `store.getArtist(id)` / `store.setArtist(id, artist)`
   - `store.getAudioFeatures(id)` / `store.setAudioFeatures(id, features)`
   - `store.getCredits(id)` / `store.setCredits(id, credits)`
+  - `store.getLLMInsights(id)` / `store.setLLMInsights(id, insights)`
 - Cache stats (key count, storage size) are surfaced on the `/settings` page.
 
 ---
@@ -187,6 +217,10 @@ ProductionCredit  // { producers, mixingEngineers, masteringEngineers, label, re
 CreditPerson      // { name, id?, bio?, techniques?, notableWorks? }
 SearchResult      // { type, id, title, subtitle?, imageUrl? }
 GeniusAnnotation  // { url, lyrics?, description?, facts?, annotations? }
+LLMInsights       // { subject, type: 'album'|'artist', productionProcess, producers: ProducerInfo[] }
+ForceGraphNode    // { id, name, type, val? } — for force-directed graph visualisation
+ForceGraphLink    // { source, target, value? }
+GenreFamily       // Enum: rock | pop | hiphop | electronic | jazz | classical | country | ...
 ```
 
 ---
@@ -198,7 +232,9 @@ GeniusAnnotation  // { url, lyrics?, description?, facts?, annotations? }
 | Last.fm | API key (`LASTFM_API_KEY`) | Search, artist bio, album info, similar artists | None enforced client-side |
 | MusicBrainz | None (User-Agent header) | Recording/release credits, artist origin | 1 req/sec (enforced in `mbFetch`) |
 | Genius | Bearer token (`GENIUS_ACCESS_TOKEN`) | Track annotations and facts | None enforced |
-| Spotify | Client credentials (`SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`) | Audio features, related artists | Token auto-refreshed |
+| Spotify | Client credentials (`SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`) | Audio features | Token auto-refreshed |
+| Claude (Anthropic) | API key (`ANTHROPIC_API_KEY`) | LLM production insights (default provider) | Model-dependent |
+| OpenAI | API key (`OPENAI_API_KEY`) | LLM production insights (optional, set `LLM_PROVIDER=openai`) | Model-dependent |
 
 Required environment variables:
 ```
@@ -206,7 +242,10 @@ LASTFM_API_KEY=
 GENIUS_ACCESS_TOKEN=
 SPOTIFY_CLIENT_ID=
 SPOTIFY_CLIENT_SECRET=
-MUSICBRAINZ_APP_NAME=   # optional — defaults to MusicDeepDive/0.1
+ANTHROPIC_API_KEY=
+OPENAI_API_KEY=          # optional — only needed if LLM_PROVIDER=openai
+LLM_PROVIDER=            # optional — "claude" (default) or "openai"
+MUSICBRAINZ_APP_NAME=    # optional — defaults to MusicDeepDive/0.1
 ```
 
 ---
@@ -229,8 +268,9 @@ Tailwind CSS with a custom dark theme defined in `tailwind.config.js`:
 
 ```bash
 npm install
-cp .env.example .env.local   # add API keys
+# Create .env.local and populate the required keys listed in the External APIs section above
 npm run dev                  # localhost:3000
 npm run build                # production build
 npm run lint                 # ESLint
+npm run type-check           # TypeScript type check (no emit)
 ```
